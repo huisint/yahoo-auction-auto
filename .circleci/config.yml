@@ -1,0 +1,71 @@
+# Copyright (c) 2022 Shuhei Nitta. All rights reserved.
+version: 2.1
+
+orbs:
+  python: circleci/python@1.5.0
+  browser-tools: circleci/browser-tools@1.2.5
+
+jobs:
+  test: 
+    docker:
+      - image: cimg/python:3.10-browsers
+    steps:
+      - checkout
+      - browser-tools/install-chrome
+      - browser-tools/install-chromedriver
+      - python/install-packages:
+          pkg-manager: pip
+      - run:
+          name: Run flake8
+          command: flake8 .
+      - run:
+          name: Run mypy
+          command: mypy .
+      - run:
+          name: Run unittests
+          command: coverage run -m unittest
+      - run:
+          name: Report coverage
+          command: coverage report
+  publish:
+    docker:
+      - image: cimg/python:3.10
+    steps:
+      - checkout
+      - run:
+          name: Verify git-tag vs. version
+          command: |
+            GIT_TAG=$CIRCLE_TAG
+            APP_VERSION=$(python setup.py --version)
+            if [ "$GIT_TAG" != "v$APP_VERSION" ]; then
+              echo "Git tag: $GIT_TAG doesn't match the version of this app, v$APP_VERSION"
+              exit 1
+            fi
+      - run:
+          name: Install dependencies
+          command: pip install setuptools wheel twine
+      - run:
+          name: Build distributions
+          command: python setup.py sdist
+      - run:
+          name: Init .pypirc
+          command: |
+            echo "[pypi]" >> ~/.pypirc
+            echo "username = $PYPI_USERNAME" >> ~/.pypirc
+            echo "password = $PYPI_PASSWORD" >> ~/.pypirc
+      - run:
+          name: Upload to pypi
+          command: twine upload -r pypi dist/*
+
+workflows:
+  test:
+    jobs:
+      - test
+  publish:
+    jobs:
+      - publish:
+          filters:
+            tags:
+              only: /^v[0-9]+(\.[0-9]+)*/
+            branches:
+              ignore: /.*/
